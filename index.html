@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finding the Normal Line Simulation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            max-width: 700px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 { margin-top: 0; color: #333; }
+        .instructions {
+            background: #eef2ff;
+            border-left: 4px solid #4f46e5;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: left;
+            border-radius: 0 8px 8px 0;
+            font-size: 16px;
+            min-height: 60px;
+        }
+        canvas {
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            background: #fafafa;
+            cursor: crosshair;
+            touch-action: none; /* Prevent scrolling while drawing */
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        button {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: #4338ca; }
+        button:disabled { background: #a5b4fc; cursor: not-allowed; }
+        #feedback {
+            font-weight: bold;
+            color: #d97706;
+            margin: 10px 0;
+            min-height: 24px;
+        }
+        .score-display {
+            font-weight: bold;
+            color: #10b981;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Finding the Normal Line</h1>
+    <div class="instructions" id="instructions">
+        Loading simulation...
+    </div>
+    
+    <canvas id="simCanvas" width="600" height="400"></canvas>
+    
+    <div id="feedback"></div>
+
+    <div class="controls">
+        <div class="score-display" id="scoreDisplay">Score: 0%</div>
+        <button id="nextBtn" disabled>Next Phase</button>
+    </div>
+</div>
+
+<script>
+    // --- 1. PLATFORM INTEGRATION (postMessage Protocol) ---
+    let handshakeToken = null;
+    let assignmentId = null;
+    let parentOrigin = '*'; 
+
+    // Receive handshake from parent
+    window.addEventListener('message', (ev) => {
+        try {
+            const msg = ev.data;
+            if (msg && msg.type === 'handshake' && msg.assignmentId && msg.token) {
+                assignmentId = msg.assignmentId;
+                handshakeToken = msg.token;
+                parentOrigin = ev.origin;
+                
+                // Acknowledge ready
+                window.parent.postMessage({
+                    type: 'sim-ready',
+                    assignmentId,
+                    token: handshakeToken,
+                    payload: { version: '1.0', simId: 'lens-normal-sim' }
+                }, parentOrigin);
+            }
+        } catch (err) {
+            console.error("Error processing handshake:", err);
+        }
+    });
+
+    // Send progress periodically/on action
+    function reportProgress(state) {
+        if (!handshakeToken || !assignmentId) return;
+        window.parent.postMessage({
+            type: 'sim-progress',
+            assignmentId,
+            token: handshakeToken,
+            payload: { timestamp: Date.now(), state }
+        }, parentOrigin);
+    }
+
+    // On complete
+    function reportComplete(finalState) {
+        if (!handshakeToken || !assignmentId) return;
+        window.parent.postMessage({
+            type: 'sim-complete',
+            assignmentId,
+            token: handshakeToken,
+            payload: { finalState, score: finalState.score }
+        }, parentOrigin);
+    }
+
+
+    // --- 2. SIMULATION LOGIC ---
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const instructionsEl = document.getElementById('instructions');
+    const feedbackEl = document.getElementById('feedback');
+    const nextBtn = document.getElementById('nextBtn');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+
+    let phase = 0; // 0: Learn Flat, 1: Learn Circle, 2: Practice Flat, 3: Practice Circle, 4: Complete
+    let isDrawing = false;
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let currentY = 0;
+    let clickPoint = null;
+    let userAngle = null;
+    let correctAngle = null;
+    
+    // Scoring
+    let totalAttempts = 0;
+    let totalAccuracy = 0; 
+    let currentScore = 0;
+
+    // Lens definitions
+    const flatLens = { x: 250, y: 100, w: 100, h: 200, type: 'rect' };
+    const circleLens = { x: 300, y: 200, r: 100, type: 'circle' };
+    let currentLens = null;
+
+    const phases = [
+        {
+            text: "<b>LEARN: Flat Lens.</b> The 'normal' is an imaginary line perpendicular (90 degrees) to the surface where light hits it. <br><br>👉 <b>Click anywhere on the right edge of the blue lens</b> to see its normal line.",
+            lens: flatLens,
+            mode: 'learn',
+            action: 'click'
+        },
+        {
+            text: "<b>LEARN: Circular Lens.</b> For curved surfaces, the normal line always aligns with the radius. It points directly away from the center of the circle. <br><br>👉 <b>Click anywhere on the edge of the circular lens</b> to see its normal line.",
+            lens: circleLens,
+            mode: 'learn',
+            action: 'click'
+        },
+        {
+            text: "<b>PRACTICE 1: Flat Lens.</b> Now it's your turn. <br><br>👉 <b>Click on the right edge of the lens and drag outward</b> to draw the normal line. Try to make it exactly 90 degrees!",
+            lens: flatLens,
+            mode: 'practice',
+            action: 'drag'
+        },
+        {
+            text: "<b>PRACTICE 2: Circular Lens.</b> <br><br>👉 <b>Click on the edge of the circle and drag outward</b> to draw the normal line. Remember, it should point directly away from the center!",
+            lens: circleLens,
+            mode: 'practice',
+            action: 'drag'
+        },
+        {
+            text: "<b>Simulation Complete!</b> You have finished the practice.",
+            lens: null,
+            mode: 'complete',
+            action: 'none'
+        }
+    ];
+
+    function initPhase() {
+        const p = phases[phase];
+        instructionsEl.innerHTML = p.text;
+        currentLens = p.lens;
+        clickPoint = null;
+        userAngle = null;
+        isDrawing = false;
+        feedbackEl.innerText = "";
+        nextBtn.disabled = true;
+        
+        if (p.mode === 'complete') {
+            const finalScore = Math.round(totalAccuracy / (totalAttempts || 1));
+            feedbackEl.innerText = `Great job! Final Average Accuracy: ${finalScore}%`;
+            nextBtn.style.display = 'none';
+            reportComplete({ phase: 'complete', score: finalScore });
+        } else {
+            reportProgress({ currentPhase: phase, status: 'started' });
+        }
+        draw();
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!currentLens) return;
+
+        // Draw Lens
+        ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+        ctx.strokeStyle = "#2563eb";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        
+        if (currentLens.type === 'rect') {
+            ctx.rect(currentLens.x, currentLens.y, currentLens.w, currentLens.h);
+        } else if (currentLens.type === 'circle') {
+            ctx.arc(currentLens.x, currentLens.y, currentLens.r, 0, Math.PI * 2);
+            // Draw center dot for circle to help students
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.fillStyle = "#1e40af";
+            ctx.arc(currentLens.x, currentLens.y, 4, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        const p = phases[phase];
+
+        // Draw Learn Mode Normal
+        if (p.mode === 'learn' && clickPoint) {
+            drawNormalLine(clickPoint.x, clickPoint.y, correctAngle, "#10b981", "True Normal");
+        }
+
+        // Draw Practice Mode User Line
+        if (p.mode === 'practice') {
+            // Draw active dragging line
+            if (isDrawing) {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(currentX, currentY);
+                ctx.strokeStyle = "#f59e0b";
+                ctx.setLineDash([5, 5]);
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            // Draw submitted line and true line for feedback
+            else if (clickPoint && userAngle !== null) {
+                // User line
+                const endX = clickPoint.x + Math.cos(userAngle) * 100;
+                const endY = clickPoint.y + Math.sin(userAngle) * 100;
+                ctx.beginPath();
+                ctx.moveTo(clickPoint.x, clickPoint.y);
+                ctx.lineTo(endX, endY);
+                ctx.strokeStyle = "#f59e0b";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Show true normal once they submit
+                if (nextBtn.disabled === false) {
+                    drawNormalLine(clickPoint.x, clickPoint.y, correctAngle, "rgba(16, 185, 129, 0.5)", "True Normal");
+                }
+            }
+        }
+    }
+
+    function drawNormalLine(x, y, angle, color, label) {
+        const length = 120;
+        const endX = x + Math.cos(angle) * length;
+        const endY = y + Math.sin(angle) * length;
+        
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Label
+        ctx.fillStyle = color;
+        ctx.font = "14px Arial";
+        ctx.fillText(label, endX + 5, endY + 5);
+        
+        // Point
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI*2);
+        ctx.fillStyle = "#ef4444";
+        ctx.fill();
+    }
+
+    function calculateCorrectAngle(x, y) {
+        if (currentLens.type === 'rect') {
+            // Assuming right edge for simplicity as per instructions
+            return 0; // 0 radians = directly right
+        } else if (currentLens.type === 'circle') {
+            return Math.atan2(y - currentLens.y, x - currentLens.x);
+        }
+        return 0;
+    }
+
+    function snapToEdge(x, y) {
+        if (currentLens.type === 'rect') {
+            // Snap to right edge
+            const clampedY = Math.max(currentLens.y, Math.min(y, currentLens.y + currentLens.h));
+            return { x: currentLens.x + currentLens.w, y: clampedY };
+        } else if (currentLens.type === 'circle') {
+            // Snap to circumference
+            const angle = Math.atan2(y - currentLens.y, x - currentLens.x);
+            return {
+                x: currentLens.x + Math.cos(angle) * currentLens.r,
+                y: currentLens.y + Math.sin(angle) * currentLens.r
+            };
+        }
+    }
+
+    // --- INTERACTION HANDLING ---
+    function getMousePos(evt) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        let clientX = evt.clientX;
+        let clientY = evt.clientY;
+
+        if (evt.touches && evt.touches.length > 0) {
+            clientX = evt.touches[0].clientX;
+            clientY = evt.touches[0].clientY;
+        }
+
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY
+        };
+    }
+
+    function handleStart(e) {
+        e.preventDefault();
+        const pos = getMousePos(e);
+        const p = phases[phase];
+
+        if (p.mode === 'learn') {
+            clickPoint = snapToEdge(pos.x, pos.y);
+            correctAngle = calculateCorrectAngle(clickPoint.x, clickPoint.y);
+            feedbackEl.style.color = "#10b981";
+            feedbackEl.innerText = "Great! See how the normal line is drawn.";
+            nextBtn.disabled = false;
+            draw();
+        } 
+        else if (p.mode === 'practice') {
+            clickPoint = snapToEdge(pos.x, pos.y);
+            correctAngle = calculateCorrectAngle(clickPoint.x, clickPoint.y);
+            startX = clickPoint.x;
+            startY = clickPoint.y;
+            currentX = pos.x;
+            currentY = pos.y;
+            isDrawing = true;
+            nextBtn.disabled = true;
+            feedbackEl.innerText = "Drag outward to draw the line...";
+            draw();
+        }
+    }
+
+    function handleMove(e) {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const pos = getMousePos(e);
+        currentX = pos.x;
+        currentY = pos.y;
+        draw();
+    }
+
+    function handleEnd(e) {
+        if (!isDrawing) return;
+        e.preventDefault();
+        isDrawing = false;
+        
+        userAngle = Math.atan2(currentY - startY, currentX - startX);
+        
+        // Calculate Angle Difference
+        let diff = Math.abs((userAngle - correctAngle) * (180 / Math.PI));
+        // Normalize diff to 0-180
+        diff = diff % 360;
+        if (diff > 180) diff = 360 - diff;
+
+        // Calculate Score (Accuracy Percentage)
+        // 0 deg diff = 100%, 90 deg diff = 0%
+        let accuracy = Math.max(0, 100 - (diff / 90) * 100);
+        accuracy = Math.round(accuracy);
+
+        totalAttempts++;
+        totalAccuracy += accuracy;
+        currentScore = Math.round(totalAccuracy / totalAttempts);
+        scoreDisplay.innerText = `Average Score: ${currentScore}%`;
+
+        if (accuracy > 85) {
+            feedbackEl.style.color = "#10b981";
+            feedbackEl.innerText = `Excellent! Your line is ${accuracy}% accurate.`;
+            nextBtn.disabled = false;
+        } else {
+            feedbackEl.style.color = "#ef4444";
+            feedbackEl.innerText = `Not quite. Your accuracy was ${accuracy}%. Try drawing it again. (Aim for 85%+)`;
+            clickPoint = null; // Reset to force redraw
+        }
+
+        reportProgress({ 
+            currentPhase: phase, 
+            accuracyThisAttempt: accuracy,
+            averageScore: currentScore,
+            status: accuracy > 85 ? 'success' : 'retry'
+        });
+
+        draw();
+    }
+
+    canvas.addEventListener('mousedown', handleStart);
+    canvas.addEventListener('mousemove', handleMove);
+    canvas.addEventListener('mouseup', handleEnd);
+    canvas.addEventListener('touchstart', handleStart, {passive: false});
+    canvas.addEventListener('touchmove', handleMove, {passive: false});
+    canvas.addEventListener('touchend', handleEnd);
+
+    nextBtn.addEventListener('click', () => {
+        phase++;
+        initPhase();
+    });
+
+    // Start Simulation
+    initPhase();
+
+</script>
+</body>
+</html>
