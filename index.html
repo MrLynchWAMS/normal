@@ -222,7 +222,9 @@
     // --- 1. PLATFORM INTEGRATION (postMessage Protocol) ---
     let handshakeToken = null;
     let assignmentId = null;
-    let parentOrigin = '*'; 
+
+    // Ping parent to announce iframe is ready for the handshake
+    window.parent.postMessage({ type: 'sim-loaded' }, '*');
 
     window.addEventListener('message', (ev) => {
         try {
@@ -230,14 +232,14 @@
             if (msg && msg.type === 'handshake' && msg.assignmentId && msg.token) {
                 assignmentId = msg.assignmentId;
                 handshakeToken = msg.token;
-                parentOrigin = ev.origin;
                 
+                // Fire sim-ready using '*' to bypass sandboxed iframe restrictions
                 window.parent.postMessage({
                     type: 'sim-ready',
                     assignmentId,
                     token: handshakeToken,
-                    payload: { version: '4.1', simId: 'lens-normal-sim' }
-                }, parentOrigin);
+                    payload: { version: '5.0', simId: 'lens-normal-sim' }
+                }, '*');
             }
         } catch (err) {
             console.error("Error processing handshake:", err);
@@ -253,8 +255,14 @@
                 type: 'sim-progress',
                 assignmentId,
                 token: handshakeToken,
-                payload: { timestamp: Date.now(), state }
-            }, parentOrigin);
+                payload: { 
+                    timestamp: Date.now(),
+                    progress: currentScore, // Ensure parent can find the exact value
+                    percent: currentScore,
+                    step: currentPhase ? currentPhase.mode + '-' + phaseIndex : 'unknown',
+                    state: state
+                }
+            }, '*'); // Changed to '*' to avoid origin null blocking
         }, 300);
     }
 
@@ -264,8 +272,13 @@
             type: 'sim-complete',
             assignmentId,
             token: handshakeToken,
-            payload: { finalState, score: finalState.score }
-        }, parentOrigin);
+            payload: { 
+                finalState, 
+                score: finalState.score,
+                progress: 100,
+                percent: 100
+            }
+        }, '*');
     }
 
 
@@ -343,7 +356,7 @@
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 1: Drawing Perpendicular</b><br>Now it's your turn. <br><br>👉 <b>Click and drag ANYWHERE</b> to draw a line perfectly perpendicular (90°) to the pink surface. Make sure it passes precisely through the red dot!",
+            text: "<b>PRACTICE 1: Drawing Perpendicular</b><br>Now it's your turn. <br><br>👉 <b>Click on one side of the line and drag THROUGH the red dot to the other side.</b> Make sure it extends on both sides to form a perfect cross!",
             lens: { type: 'line', x1: 150, y1: 200, x2: 450, y2: 200 },
             incPoint: { x: 300, y: 200 },
             correctAngle: -Math.PI / 2,
@@ -393,7 +406,7 @@
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 2: Flat Lens</b><br>Your turn. The pink surface is highlighted to help you.<br><br>👉 <b>Click and drag ANYWHERE</b> to draw the Normal Line 90° to the surface.",
+            text: "<b>PRACTICE 2: Flat Lens</b><br>Your turn. The pink surface is highlighted to help you.<br><br>👉 <b>Click and drag to draw the Normal Line 90° to the surface.</b> It MUST cross through the red dot and extend on BOTH sides (into the air and the lens).",
             lens: { type: 'rect', x: 150, y: 75, w: 150, h: 200 },
             ray: { startX: 500, startY: 50, endX: 300, endY: 150 },
             correctAngle: 0,
@@ -401,7 +414,7 @@
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 3: Triangular Prism</b><br>The pink highlight is gone! You must find the surface yourself.<br><br>👉 <b>Click and drag to draw the Normal Line.</b> Remember: 90 degrees to the slanted surface!",
+            text: "<b>PRACTICE 3: Triangular Prism</b><br>The pink highlight is gone! You must find the surface yourself.<br><br>👉 <b>Draw the Normal Line.</b> Remember: 90 degrees, pass through the red dot, and extend on BOTH sides!",
             lens: { type: 'polygon', points: [{x:200, y:250}, {x:400, y:250}, {x:300, y:75}] },
             ray: { startX: 100, startY: 100, endX: 250, endY: 162.5 },
             correctAngle: Math.atan2(75-250, 300-200) - Math.PI/2,
@@ -409,7 +422,7 @@
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 4: Circular Lens</b><br>Use the blue center dot to help you aim!<br><br>👉 <b>Click and drag to draw the Normal Line.</b>",
+            text: "<b>PRACTICE 4: Circular Lens</b><br>Use the blue center dot to help you aim!<br><br>👉 <b>Draw the Normal Line.</b> Extend it on BOTH sides!",
             lens: { type: 'circle', x: 200, y: 175, r: 100 },
             ray: { startX: 450, startY: 50, endX: 270, endY: 104 },
             correctAngle: Math.atan2(104 - 175, 270 - 200),
@@ -418,7 +431,7 @@
         () => {
             const phase = generateRandomPolygon();
             phase.mode = 'practice';
-            phase.text = "<b>PRACTICE 5: Random Shape</b><br>Let's test your skills on a strange shape. Look closely at the edge where the light hits.<br><br>👉 <b>Draw the Normal Line.</b> (90° to the surface)";
+            phase.text = "<b>PRACTICE 5: Random Shape</b><br>Let's test your skills on a strange shape. Look closely at the edge where the light hits.<br><br>👉 <b>Draw the Normal Line.</b> (90° to the surface, through the dot, on both sides)";
             phase.showHighlight = false;
             return phase;
         },
@@ -887,25 +900,42 @@
         const inc = currentPhase.incPoint ? { x: currentPhase.incPoint.x, y: currentPhase.incPoint.y } : { x: currentPhase.ray.endX, y: currentPhase.ray.endY };
         
         // --- SCORING CONFIGURATION VARIABLES ---
-        // Tweak these numbers to make the grading harder or easier!
-        const MAX_DISTANCE_ERROR = 25;  // Pixels. Max allowed distance from the red dot (Middle ground: 25)
-        const PERFECT_ANGLE_MARGIN = 3; // Degrees. Allowed wiggle room to still get exactly 100% (Middle ground: 3)
-        const ANGLE_DROPOFF_RATE = 15;  // Degrees. How many degrees past the perfect margin until the score hits 0%
+        const MAX_DISTANCE_ERROR = 35;  // Pixels allowed from the red dot
+        const PERFECT_ANGLE_MARGIN = 4; // Degrees allowed for 100%
+        const ANGLE_DROPOFF_RATE = 20;  // How fast score drops off
         // ---------------------------------------
 
-        // Distance check from incidence point to the drawn line
+        // 1. Check distance to incidence point (must cross it)
         const A = currentY - drawStartY;
         const B = -(currentX - drawStartX);
         const C = currentX * drawStartY - drawStartX * currentY;
         const dist = Math.abs(A * inc.x + B * inc.y + C) / Math.hypot(A, B);
 
+        // 2. Vector check to ensure the red dot is structurally BETWEEN the start and end of the line
+        const v1x = drawStartX - inc.x;
+        const v1y = drawStartY - inc.y;
+        const v2x = currentX - inc.x;
+        const v2y = currentY - inc.y;
+        
+        // If the dot product is positive, both ends of the drawn line are pointing in the same direction 
+        // from the red dot (meaning they didn't drag *through* the dot, they dragged *away* from it).
+        const dotProduct = (v1x * v2x) + (v1y * v2y);
+        const distToStart = Math.hypot(v1x, v1y);
+        const distToEnd = Math.hypot(v2x, v2y);
+
         let accuracy = 0;
         let isSuccess = false;
 
-        if (dist > MAX_DISTANCE_ERROR) {
+        // Verify the line is close to the dot AND extends a reasonable amount on both sides
+        if (dist > MAX_DISTANCE_ERROR || dotProduct >= 0 || distToStart < 15 || distToEnd < 15) {
             feedbackEl.style.color = "#ef4444";
-            feedbackEl.innerText = `Score 0%. Your line missed the red dot by ${Math.round(dist)}px! It MUST pass exactly through the Point of Incidence.`;
+            if (dist > MAX_DISTANCE_ERROR) {
+                feedbackEl.innerText = `Score 0%. Your line missed the red dot by ${Math.round(dist)}px! It MUST pass exactly through it.`;
+            } else {
+                feedbackEl.innerText = `Score 0%. Your line MUST extend on BOTH sides of the surface. Start in the air and drag THROUGH the red dot into the lens!`;
+            }
             accuracy = 0;
+            userDrawnLine = null; // erase bad line
         } else {
             // Angle check
             const drawnAngle = Math.atan2(A, -B); 
@@ -917,7 +947,6 @@
             
             const diffDeg = angleDiff * 180 / Math.PI;
             
-            // Smoother Scoring Math based on the variables above:
             if (diffDeg <= PERFECT_ANGLE_MARGIN) {
                 accuracy = 100;
             } else {
@@ -939,6 +968,7 @@
             } else {
                 feedbackEl.style.color = "#ef4444";
                 feedbackEl.innerText = `Not quite right (${accuracy}%). You were off by ${Math.round(diffDeg)}°. Try again! (Needs 85%+)`;
+                userDrawnLine = null;
             }
         }
 
