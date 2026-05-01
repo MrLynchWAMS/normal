@@ -34,7 +34,7 @@
             margin-bottom: 20px;
             text-align: left;
             border-radius: 4px 8px 8px 4px;
-            font-size: 15px;
+            font-size: 16px;
             line-height: 1.5;
             color: #333;
             box-shadow: inset 0 0 10px rgba(0,0,0,0.02);
@@ -42,7 +42,7 @@
             min-height: 80px;
         }
         .notebook-panel::before {
-            content: 'NOTES';
+            content: 'NOTES & INSTRUCTIONS';
             position: absolute;
             top: -10px;
             left: 10px;
@@ -50,9 +50,17 @@
             color: white;
             font-size: 10px;
             font-weight: bold;
-            padding: 2px 6px;
+            padding: 2px 8px;
             border-radius: 4px;
             letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .canvas-container {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
         }
 
         canvas {
@@ -65,8 +73,38 @@
             max-width: 100%;
             height: auto;
         }
+
+        /* Quiz Panel Styles */
+        #quizPanel {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #f8fafc;
+            border: 2px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: left;
+            flex-direction: column;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+        #quizPanel h2 { margin-top: 0; color: #1e293b; }
+        .quiz-option {
+            background: white;
+            border: 2px solid #e2e8f0;
+            padding: 12px 20px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .quiz-option:hover { background: #f1f5f9; border-color: #cbd5e1; }
+        .quiz-option.correct { background: #dcfce7; border-color: #22c55e; color: #166534; }
+        .quiz-option.incorrect { background: #fee2e2; border-color: #ef4444; color: #991b1b; }
+
         .controls {
-            margin-top: 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -97,7 +135,7 @@
         #feedback {
             font-weight: bold;
             color: #d97706;
-            margin: 15px 0;
+            margin: 10px 0;
             min-height: 24px;
             font-size: 16px;
             padding: 0 10px;
@@ -143,13 +181,19 @@
 <body>
 
 <div class="container">
-    <h1>Understanding the Normal Line & Refraction</h1>
+    <h1>Finding the Normal Line & Refraction</h1>
     
     <div class="notebook-panel" id="instructions">
         Loading simulation...
     </div>
     
-    <canvas id="simCanvas" width="600" height="350"></canvas>
+    <div class="canvas-container">
+        <canvas id="simCanvas" width="600" height="350"></canvas>
+        <div id="quizPanel">
+            <h2 id="quizQuestion">Question text here?</h2>
+            <div id="quizOptions"></div>
+        </div>
+    </div>
     
     <div id="feedback"></div>
 
@@ -191,7 +235,7 @@
                     type: 'sim-ready',
                     assignmentId,
                     token: handshakeToken,
-                    payload: { version: '3.0', simId: 'lens-normal-sim' }
+                    payload: { version: '4.0', simId: 'lens-normal-sim' }
                 }, parentOrigin);
             }
         } catch (err) {
@@ -233,15 +277,19 @@
     const nextBtn = document.getElementById('nextBtn');
     const restartBtn = document.getElementById('restartBtn');
     const scoreDisplay = document.getElementById('scoreDisplay');
+    const quizPanel = document.getElementById('quizPanel');
+    const quizQuestion = document.getElementById('quizQuestion');
+    const quizOptionsContainer = document.getElementById('quizOptions');
 
     let phaseIndex = 0; 
     let currentPhase = null;
     let isDrawing = false;
     let drawStartX = 0, drawStartY = 0;
     let currentX = 0, currentY = 0;
-    let userDrawnLine = null; // {x1, y1, x2, y2}
+    let userDrawnLine = null; 
     let showTrueNormal = false;
     let isSubmitted = false;
+    let quizAnsweredCorrectly = false;
     
     let totalAttempts = 0;
     let totalAccuracy = 0; 
@@ -259,7 +307,6 @@
             points.push({ x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
         }
         
-        // Pick random edge
         const edgeIdx = Math.floor(Math.random() * numSides);
         const p1 = points[edgeIdx];
         const p2 = points[(edgeIdx + 1) % numSides];
@@ -287,96 +334,98 @@
     const buildPhases = () => [
         () => ({
             mode: 'learn',
-            text: "<b>LEARN 1: What is 'Perpendicular'?</b><br>Before we talk about lenses and light, let's learn the word <span class='highlight'>Perpendicular</span>. It means two lines that meet at exactly 90 degrees (a perfect square corner).<br><br>👉 <b>Click the red dot</b> to draw a perfectly perpendicular line to the black surface below.",
+            text: "<b>LEARN 1: What is 'Perpendicular'?</b><br>Before we look at lenses, let's learn the word <span class='highlight'>Perpendicular</span>. It means two lines that meet at exactly 90 degrees (a perfect square corner).<br><br>👉 Notice the <span style='color:#ec4899; font-weight:bold;'>pink dashed line</span> highlighting the surface. <b>Click the red dot</b> to draw a line perfectly perpendicular (90°) to it.",
             lens: { type: 'line', x1: 150, y1: 200, x2: 450, y2: 200 },
             incPoint: { x: 300, y: 200 },
-            correctAngle: -Math.PI / 2
+            correctAngle: -Math.PI / 2,
+            showHighlight: true
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 1: Perpendicular</b><br>Now it's your turn. <br><br>👉 <b>Click the red dot and drag UP</b> to draw a line that is perfectly perpendicular (90°) to the black line.",
+            text: "<b>PRACTICE 1: Drawing Perpendicular</b><br>Now it's your turn. <br><br>👉 <b>Click the red dot and drag UP</b> to draw a line perfectly perpendicular (90°) to the pink surface. <br><i>(Notice how the simulation automatically extends your line backward too!)</i>",
             lens: { type: 'line', x1: 150, y1: 200, x2: 450, y2: 200 },
             incPoint: { x: 300, y: 200 },
-            correctAngle: -Math.PI / 2
+            correctAngle: -Math.PI / 2,
+            showHighlight: true
         }),
         () => ({
-            mode: 'practice',
-            text: "<b>PRACTICE 2: Angled Line</b><br>What if the surface is tilted?<br><br>👉 <b>Click the red dot and drag UP/AWAY</b> to draw the perpendicular line. It must still form a perfect 90° corner with the black line!",
-            lens: { type: 'line', x1: 150, y1: 280, x2: 450, y2: 150 },
-            incPoint: { x: 300, y: 215 },
-            correctAngle: Math.atan2(150-280, 450-150) - Math.PI/2
+            mode: 'quiz',
+            text: "<b>Pop Quiz!</b>",
+            question: "What angle does a 'Perpendicular' line make with the surface?",
+            options: ["0 degrees (Parallel to it)", "45 degrees", "90 degrees (A square corner)", "180 degrees"],
+            correctIndex: 2
         }),
         () => ({
             mode: 'notes',
-            text: "<b>Great! Now let's apply this to Lenses & Light.</b><br><br>When light travels from air into a lens, it bends (refracts). To measure how much it bends, scientists draw an imaginary reference line called the <span class='highlight'>Normal Line</span>.<br><br><b>The Golden Rules:</b><br>1. The Normal Line is exactly perpendicular (90°) to the lens surface, right where the light hits it.<br>2. Watch how the light bends <b>towards</b> the normal when entering the lens, and <b>away</b> from it when exiting back into the air.",
+            text: "<b>Applying this to Lenses & Light.</b><br><br>When light enters a lens, it bends. To measure the bend, we draw the <span class='highlight'>Normal Line</span>.<br><br><b>The Rules:</b><br>1. The Normal Line is exactly <b>perpendicular (90°)</b> to the lens surface at the exact spot the light hits.<br>2. It must cross the boundary, extending into BOTH the air and the lens.<br>3. Light bends <b>towards</b> the normal entering the lens, and <b>away</b> exiting.",
             lens: null, ray: null
         }),
         () => ({
             mode: 'learn',
-            text: "<b>LEARN 2: Flat Lens (Straight On)</b><br>Look at the yellow light ray hitting the flat lens. The red dot is the Point of Incidence.<br><br>👉 <b>Click anywhere</b> to reveal the Normal Line. Notice it makes a perfect 90° angle. Because the light is hitting <i>straight on</i> (along the normal), it doesn't bend!",
-            lens: { type: 'rect', x: 250, y: 50, w: 100, h: 250 },
-            ray: { startX: 50, startY: 175, endX: 250, endY: 175 },
-            correctAngle: Math.PI 
-        }),
-        () => ({
-            mode: 'learn',
-            text: "<b>LEARN 3: Flat Lens (Angled)</b><br>Now the light is coming in at an angle. The normal is <b>NOT</b> the same as the light ray!<br><br>👉 <b>Click anywhere</b> to reveal the Normal Line. Notice how the light bends <b>towards</b> the normal inside, and <b>away</b> as it exits.",
+            text: "<b>LEARN 2: Flat Lens</b><br>The pink line shows the surface the light is hitting.<br><br>👉 <b>Click the red dot</b> to reveal the Normal Line. Notice how it extends across the boundary into the lens, and how the light inside bends <b>towards</b> it.",
             lens: { type: 'rect', x: 250, y: 50, w: 100, h: 250 },
             ray: { startX: 100, startY: 50, endX: 250, endY: 175 },
-            correctAngle: Math.PI 
+            correctAngle: Math.PI,
+            showHighlight: true
+        }),
+        () => ({
+            mode: 'quiz',
+            text: "<b>Pop Quiz!</b>",
+            question: "Where exactly MUST the Normal Line be drawn?",
+            options: ["At the exact center of the lens", "At the Point of Incidence (the red dot where light hits)", "Parallel to the incoming light ray", "It doesn't matter as long as it's 90 degrees"],
+            correctIndex: 1
         }),
         () => ({
             mode: 'learn',
-            text: "<b>LEARN 4: Circular Lenses</b><br>For curved surfaces, finding 90 degrees looks different! <br><br><b>The Trick:</b> The Normal Line on a circle always lines up with the radius. It points straight away from the <span class='highlight'>center of the circle</span>.<br><br>👉 <b>Click anywhere</b> to reveal the Normal Line.",
+            text: "<b>LEARN 3: Circular Lenses</b><br>Finding 90° on a curve is tricky! <br><br><b>The Trick:</b> The Normal Line on a circle always lines up with the radius. It points straight away from the <span class='highlight'>center of the circle</span>.<br><br>👉 <b>Click the red dot</b> to reveal the Normal Line. Notice the pink tangent surface!",
             lens: { type: 'circle', x: 300, y: 175, r: 100 },
             ray: { startX: 100, startY: 50, endX: 215, endY: 122 },
-            correctAngle: Math.atan2(122 - 175, 215 - 300) 
+            correctAngle: Math.atan2(122 - 175, 215 - 300),
+            showHighlight: true
+        }),
+        () => ({
+            mode: 'quiz',
+            text: "<b>Pop Quiz!</b>",
+            question: "On a circular lens, the Normal Line always aligns with what?",
+            options: ["The path of the incoming light", "The top edge of the circle", "The center of the circle (the radius)", "The bottom edge of the circle"],
+            correctIndex: 2
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 3: Flat Lens</b><br>Now it's your turn. The light hits the <i>right</i> side.<br><br>👉 <b>Click and drag ANYWHERE</b> to draw the Normal Line. <br><span style='color:red;'>⚠️ It MUST pass exactly through the red dot (Point of Incidence) to get points!</span>",
+            text: "<b>PRACTICE 2: Flat Lens</b><br>Your turn. The pink surface is highlighted to help you.<br><br>👉 <b>Click the red dot and drag ANYWHERE</b> to draw the Normal Line 90° to the surface.",
             lens: { type: 'rect', x: 150, y: 75, w: 150, h: 200 },
             ray: { startX: 500, startY: 50, endX: 300, endY: 150 },
-            correctAngle: 0 
+            correctAngle: 0,
+            showHighlight: true
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 4: Triangular Prism</b><br>The light is hitting the angled surface.<br><br>👉 <b>Click and drag to draw the Normal Line.</b> Remember: 90 degrees to the surface, passing exactly through the red dot!",
+            text: "<b>PRACTICE 3: Triangular Prism</b><br>The pink highlight is gone! You must find the surface yourself.<br><br>👉 <b>Click and drag to draw the Normal Line.</b> Remember: 90 degrees to the slanted surface!",
             lens: { type: 'polygon', points: [{x:200, y:250}, {x:400, y:250}, {x:300, y:75}] },
             ray: { startX: 100, startY: 100, endX: 250, endY: 162.5 },
-            correctAngle: Math.atan2(75-250, 300-200) - Math.PI/2 // Normal to left edge
+            correctAngle: Math.atan2(75-250, 300-200) - Math.PI/2,
+            showHighlight: false
         }),
         () => ({
             mode: 'practice',
-            text: "<b>PRACTICE 5: Trapezoid</b><br>The light is hitting the slanted edge on the top right.<br><br>👉 <b>Draw the Normal Line.</b>",
-            lens: { type: 'polygon', points: [{x:150, y:250}, {x:450, y:250}, {x:350, y:100}, {x:250, y:100}] },
-            ray: { startX: 550, startY: 100, endX: 400, endY: 175 },
-            correctAngle: Math.atan2(100-250, 350-450) - Math.PI/2 
-        }),
-        () => ({
-            mode: 'practice',
-            text: "<b>PRACTICE 6: Circular Lens</b><br>The light hits the top-right edge. Use the blue center dot to help you aim!<br><br>👉 <b>Click and drag to draw the Normal Line.</b>",
+            text: "<b>PRACTICE 4: Circular Lens</b><br>Use the blue center dot to help you aim!<br><br>👉 <b>Click and drag to draw the Normal Line.</b>",
             lens: { type: 'circle', x: 200, y: 175, r: 100 },
             ray: { startX: 450, startY: 50, endX: 270, endY: 104 },
-            correctAngle: Math.atan2(104 - 175, 270 - 200) 
-        }),
-        () => ({
-            mode: 'practice',
-            text: "<b>PRACTICE 7: Circular Lens (Bottom)</b><br>The light is hitting the exact bottom edge of the circle.<br><br>👉 <b>Draw the Normal Line.</b>",
-            lens: { type: 'circle', x: 300, y: 150, r: 100 },
-            ray: { startX: 400, startY: 350, endX: 300, endY: 250 },
-            correctAngle: Math.PI / 2 // Pointing straight down
+            correctAngle: Math.atan2(104 - 175, 270 - 200),
+            showHighlight: false
         }),
         () => {
             const phase = generateRandomPolygon();
             phase.mode = 'practice';
-            phase.text = "<b>PRACTICE 8: Random Shape</b><br>Let's test your skills on a strange shape. Look closely at the surface where the light hits.<br><br>👉 <b>Draw the Normal Line.</b> (90° to the surface, through the red dot)";
+            phase.text = "<b>PRACTICE 5: Random Shape</b><br>Let's test your skills on a strange shape. Look closely at the edge where the light hits.<br><br>👉 <b>Draw the Normal Line.</b> (90° to the surface)";
+            phase.showHighlight = false;
             return phase;
         },
         () => {
             const phase = generateRandomPolygon();
             phase.mode = 'practice';
-            phase.text = "<b>PRACTICE 9: Final Random Challenge</b><br>One last unusual shape. You can do this!<br><br>👉 <b>Draw the Normal Line.</b>";
+            phase.text = "<b>PRACTICE 6: Final Random Challenge</b><br>One last unusual shape. You can do this!<br><br>👉 <b>Draw the Normal Line.</b>";
+            phase.showHighlight = false;
             return phase;
         },
         () => ({
@@ -400,12 +449,27 @@
         userDrawnLine = null;
         isDrawing = false;
         showTrueNormal = false;
+        quizAnsweredCorrectly = false;
         feedbackEl.innerText = "";
         
-        if (currentPhase.mode === 'complete') {
+        // UI Management based on mode
+        if (currentPhase.mode === 'quiz') {
+            document.querySelector('.canvas-container canvas').style.display = 'none';
+            quizPanel.style.display = 'flex';
+            setupQuiz(currentPhase);
+            prevBtn.style.display = 'none';
+            nextBtn.style.display = 'block';
+            nextBtn.disabled = true;
+            restartBtn.style.display = 'none';
+            feedbackEl.innerText = "Answer the question to continue.";
+            feedbackEl.style.color = "#64748b";
+        } 
+        else if (currentPhase.mode === 'complete') {
+            document.querySelector('.canvas-container canvas').style.display = 'block';
+            quizPanel.style.display = 'none';
+            
             const finalScore = totalAttempts === 0 ? 0 : Math.round(totalAccuracy / totalAttempts);
             
-            // Manage UI visibility for final screen
             prevBtn.style.display = 'none';
             restartBtn.style.display = 'block';
 
@@ -424,8 +488,11 @@
                 feedbackEl.innerText = `Your average score is ${finalScore}%. You need at least 80% to submit. Please click Restart Practice to try again.`;
                 nextBtn.style.display = 'none';
             }
-        } else {
-            // Standard Navigation UI
+        } 
+        else {
+            document.querySelector('.canvas-container canvas').style.display = 'block';
+            quizPanel.style.display = 'none';
+            
             prevBtn.style.display = 'block';
             restartBtn.style.display = 'none';
             nextBtn.style.display = 'block';
@@ -438,24 +505,57 @@
             } else {
                 reportProgress({ currentPhase: phaseIndex, status: 'started' });
             }
+            draw();
         }
-
-        draw();
     }
 
+    function setupQuiz(phase) {
+        quizQuestion.innerText = phase.question;
+        quizOptionsContainer.innerHTML = '';
+        
+        phase.options.forEach((opt, idx) => {
+            const btn = document.createElement('div');
+            btn.className = 'quiz-option';
+            btn.innerText = opt;
+            btn.onclick = () => handleQuizAnswer(idx, phase.correctIndex, btn);
+            quizOptionsContainer.appendChild(btn);
+        });
+    }
+
+    function handleQuizAnswer(selectedIndex, correctIndex, btnElement) {
+        if (quizAnsweredCorrectly) return; // Prevent clicking after right answer
+        
+        const allBtns = document.querySelectorAll('.quiz-option');
+        allBtns.forEach(b => b.classList.remove('correct', 'incorrect'));
+
+        if (selectedIndex === correctIndex) {
+            btnElement.classList.add('correct');
+            feedbackEl.innerText = "Correct! Click Next to continue.";
+            feedbackEl.style.color = "#10b981";
+            quizAnsweredCorrectly = true;
+            nextBtn.disabled = false;
+        } else {
+            btnElement.classList.add('incorrect');
+            feedbackEl.innerText = "Incorrect! Restarting tutorial to make sure you read the rules...";
+            feedbackEl.style.color = "#ef4444";
+            
+            // Force restart on wrong answer after short delay
+            setTimeout(() => {
+                phaseIndex = 0; // Back to beginning
+                initPhase();
+            }, 2500);
+        }
+    }
+
+    // -- Math Helpers for Refraction & Tracing --
     function getRefractedAngleGen(n1, n2, rayTravelAngle, normalAngleIntoMedium1) {
         let fromIncAngle = rayTravelAngle + Math.PI; 
         let theta1 = fromIncAngle - normalAngleIntoMedium1;
-        
         while (theta1 > Math.PI) theta1 -= Math.PI * 2;
         while (theta1 < -Math.PI) theta1 += Math.PI * 2;
 
         const sinTheta2 = (n1 / n2) * Math.sin(theta1);
-        
-        if (Math.abs(sinTheta2) > 1) {
-            // Total Internal Reflection
-            return normalAngleIntoMedium1 - theta1; 
-        }
+        if (Math.abs(sinTheta2) > 1) return normalAngleIntoMedium1 - theta1; // TIR
         
         const theta2 = Math.asin(sinTheta2);
         return normalAngleIntoMedium1 + Math.PI + theta2;
@@ -485,10 +585,7 @@
         } else {
             let pts = [];
             if (lens.type === 'rect') {
-                pts = [
-                    {x: lens.x, y: lens.y}, {x: lens.x + lens.w, y: lens.y},
-                    {x: lens.x + lens.w, y: lens.y + lens.h}, {x: lens.x, y: lens.y + lens.h}
-                ];
+                pts = [ {x: lens.x, y: lens.y}, {x: lens.x + lens.w, y: lens.y}, {x: lens.x + lens.w, y: lens.y + lens.h}, {x: lens.x, y: lens.y + lens.h} ];
             } else if (lens.type === 'polygon') {
                 pts = lens.points;
             }
@@ -508,12 +605,7 @@
 
                 if (t1 > 0.05 && t2 >= 0 && t2 <= 1) {
                     if (!closest || t1 < closest.t) {
-                        closest = {
-                            x: entryPt.x + dir.x * t1,
-                            y: entryPt.y + dir.y * t1,
-                            t: t1,
-                            normal: Math.atan2(p2.y - p1.y, p2.x - p1.x) - Math.PI/2
-                        };
+                        closest = { x: entryPt.x + dir.x * t1, y: entryPt.y + dir.y * t1, t: t1, normal: Math.atan2(p2.y - p1.y, p2.x - p1.x) - Math.PI/2 };
                     }
                 }
             }
@@ -521,6 +613,7 @@
         return closest;
     }
 
+    // -- Drawing Functions --
     function buildLensPath(lens) {
         ctx.beginPath();
         if (lens.type === 'line') {
@@ -532,11 +625,26 @@
             ctx.arc(lens.x, lens.y, lens.r, 0, Math.PI * 2);
         } else if (lens.type === 'polygon') {
             ctx.moveTo(lens.points[0].x, lens.points[0].y);
-            for (let i = 1; i < lens.points.length; i++) {
-                ctx.lineTo(lens.points[i].x, lens.points[i].y);
-            }
+            for (let i = 1; i < lens.points.length; i++) ctx.lineTo(lens.points[i].x, lens.points[i].y);
             ctx.closePath();
         }
+    }
+
+    function drawSurfaceHighlight(inc, correctAngle) {
+        ctx.strokeStyle = "#ec4899"; // Pink highlight
+        ctx.lineWidth = 5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        
+        // The surface is exactly perpendicular to the correct normal line!
+        const surfaceAngle = correctAngle + Math.PI/2;
+        const length = 50; 
+        
+        ctx.moveTo(inc.x - Math.cos(surfaceAngle)*length, inc.y - Math.sin(surfaceAngle)*length);
+        ctx.lineTo(inc.x + Math.cos(surfaceAngle)*length, inc.y + Math.sin(surfaceAngle)*length);
+        
+        ctx.stroke();
+        ctx.setLineDash([]);
     }
 
     function drawArrow(fromX, fromY, toX, toY, color) {
@@ -562,15 +670,10 @@
         const size = 15;
         const surfaceAngle = angle + Math.PI / 2;
         
-        // Point along the normal
         const nx = x + Math.cos(angle) * size;
         const ny = y + Math.sin(angle) * size;
-        
-        // Point along the surface
         const sx = x + Math.cos(surfaceAngle) * size;
         const sy = y + Math.sin(surfaceAngle) * size;
-        
-        // Corner point
         const cx = nx + Math.cos(surfaceAngle) * size;
         const cy = ny + Math.sin(surfaceAngle) * size;
         
@@ -607,22 +710,20 @@
     }
 
     function draw() {
+        if (currentPhase.mode === 'quiz' || currentPhase.mode === 'complete' && !currentPhase.lens) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        if (!currentPhase || !currentPhase.lens) return;
         const p = currentPhase;
-        
-        // Use explicitly set incidence point for basic line examples, else extract from ray
         const inc = p.incPoint ? { x: p.incPoint.x, y: p.incPoint.y } : (p.ray ? { x: p.ray.endX, y: p.ray.endY } : null);
 
         // 1. Draw Lens or Line Surface
         if (p.lens.type === 'line') {
-            ctx.strokeStyle = "#1e293b"; // Dark slate
+            ctx.strokeStyle = "#1e293b"; 
             ctx.lineWidth = 4;
             ctx.lineCap = 'round';
             buildLensPath(p.lens);
             ctx.stroke();
-            ctx.lineCap = 'butt'; // reset
+            ctx.lineCap = 'butt'; 
         } else {
             ctx.fillStyle = "rgba(56, 189, 248, 0.2)"; 
             ctx.strokeStyle = "#0284c7";
@@ -641,44 +742,34 @@
             ctx.fillText("Center", p.lens.x - 18, p.lens.y + 18);
         }
 
-        // 2 & 3. Draw Rays (Incident, Interior, Exit) -> Only if a ray exists
+        // Highlight active surface area if enabled
+        if (p.showHighlight && inc) {
+            drawSurfaceHighlight(inc, p.correctAngle);
+        }
+
+        // 2 & 3. Draw Rays (Incident, Interior, Exit)
         if (p.ray) {
-            // Incident Ray
             drawArrow(p.ray.startX, p.ray.startY, p.ray.endX, p.ray.endY, "#eab308"); 
             
             if (inc && showTrueNormal) {
                 const n1 = 1.0, n2 = 1.5;
                 const entryTravelAngle = Math.atan2(p.ray.endY - p.ray.startY, p.ray.endX - p.ray.startX);
-                
-                // First Refraction (Air -> Lens)
                 const interiorAngle = getRefractedAngleGen(n1, n2, entryTravelAngle, p.correctAngle);
-                
-                // Find Exit Point
                 const exitHit = findExitPoint(p.lens, inc, interiorAngle);
                 
                 if (exitHit) {
-                    // Draw interior ray
-                    drawArrow(inc.x, inc.y, exitHit.x, exitHit.y, "#d97706"); // Darker orange inside
-                    
-                    // Second Refraction (Lens -> Air)
+                    drawArrow(inc.x, inc.y, exitHit.x, exitHit.y, "#d97706"); // Inside
                     const normalIntoLens = exitHit.normal + Math.PI;
                     const exitAngle = getRefractedAngleGen(n2, n1, interiorAngle, normalIntoLens);
                     
-                    // Draw exit ray
                     const exitLen = 120;
-                    const finalX = exitHit.x + Math.cos(exitAngle) * exitLen;
-                    const finalY = exitHit.y + Math.sin(exitAngle) * exitLen;
-                    drawArrow(exitHit.x, exitHit.y, finalX, finalY, "#fbbf24"); // Amber outside
-                    
+                    drawArrow(exitHit.x, exitHit.y, exitHit.x + Math.cos(exitAngle) * exitLen, exitHit.y + Math.sin(exitAngle) * exitLen, "#fbbf24"); // Outside
                 } else {
-                    // Fallback (failsafe)
                     const refLen = 200;
-                    const rx = inc.x + Math.cos(interiorAngle) * refLen;
-                    const ry = inc.y + Math.sin(interiorAngle) * refLen;
                     ctx.save();
                     buildLensPath(p.lens);
                     ctx.clip();
-                    drawArrow(inc.x, inc.y, rx, ry, "#d97706"); 
+                    drawArrow(inc.x, inc.y, inc.x + Math.cos(interiorAngle) * refLen, inc.y + Math.sin(interiorAngle) * refLen, "#d97706"); 
                     ctx.restore();
                 }
             }
@@ -690,12 +781,18 @@
             drawRightAngle(inc.x, inc.y, p.correctAngle);
         }
 
-        // 5. Draw User's Line
+        // 5. Draw User's Line (Auto-Mirroring to opposite side)
         if (p.mode === 'practice') {
+            const midX = inc.x;
+            const midY = inc.y;
+
             if (isDrawing) {
+                const dx = currentX - drawStartX;
+                const dy = currentY - drawStartY;
+                
                 ctx.beginPath();
-                ctx.moveTo(drawStartX, drawStartY);
-                ctx.lineTo(currentX, currentY);
+                ctx.moveTo(midX + dx, midY + dy); // Forward
+                ctx.lineTo(midX - dx, midY - dy); // Backward across boundary
                 ctx.strokeStyle = "#f97316";
                 ctx.lineWidth = 3;
                 ctx.stroke();
@@ -704,8 +801,6 @@
                 const dy = userDrawnLine.y2 - userDrawnLine.y1;
                 const angle = Math.atan2(dy, dx);
                 
-                const midX = inc.x; 
-                const midY = inc.y;
                 ctx.beginPath();
                 ctx.moveTo(midX + Math.cos(angle)*200, midY + Math.sin(angle)*200);
                 ctx.lineTo(midX - Math.cos(angle)*200, midY - Math.sin(angle)*200);
@@ -715,7 +810,7 @@
             }
         }
 
-        // 6. Draw Point of Incidence (on top of lines)
+        // 6. Draw Point of Incidence (on top)
         if (inc) {
             ctx.beginPath();
             ctx.arc(inc.x, inc.y, 5, 0, Math.PI*2);
@@ -744,7 +839,7 @@
 
     function handleStart(e) {
         if (!currentPhase) return;
-        if (currentPhase.mode === 'notes' || currentPhase.mode === 'complete') return;
+        if (currentPhase.mode === 'notes' || currentPhase.mode === 'complete' || currentPhase.mode === 'quiz') return;
         
         e.preventDefault();
         const pos = getMousePos(e);
@@ -760,7 +855,7 @@
             drawStartY = pos.y;
             currentX = pos.x;
             currentY = pos.y;
-            feedbackEl.innerText = "Dragging line...";
+            feedbackEl.innerText = "Dragging line... (Notice it extends across the boundary!)";
             feedbackEl.style.color = "#64748b";
             draw();
         }
@@ -782,7 +877,7 @@
         
         const lineLen = Math.hypot(currentX - drawStartX, currentY - drawStartY);
         if (lineLen < 10) {
-            feedbackEl.innerText = "Please drag your mouse to draw a line segment.";
+            feedbackEl.innerText = "Please drag your mouse outward to draw a line segment.";
             feedbackEl.style.color = "#ef4444";
             draw();
             return;
@@ -791,7 +886,7 @@
         userDrawnLine = { x1: drawStartX, y1: drawStartY, x2: currentX, y2: currentY };
         const inc = currentPhase.incPoint ? { x: currentPhase.incPoint.x, y: currentPhase.incPoint.y } : { x: currentPhase.ray.endX, y: currentPhase.ray.endY };
         
-        // 1. Distance check (must pass through incidence point)
+        // Distance check from incidence point
         const A = currentY - drawStartY;
         const B = -(currentX - drawStartX);
         const C = currentX * drawStartY - drawStartX * currentY;
@@ -800,25 +895,22 @@
         let accuracy = 0;
         let isSuccess = false;
 
-        if (dist > 15) {
-            // Missed the red dot entirely
+        if (dist > 25) {
             feedbackEl.style.color = "#ef4444";
             feedbackEl.innerText = `Score 0%. Your line missed the red dot by ${Math.round(dist)}px! It MUST pass exactly through the Point of Incidence.`;
-            userDrawnLine = null; // Don't keep drawing the bad line
+            userDrawnLine = null; 
             accuracy = 0;
         } else {
-            // 2. Angle check
+            // Angle check
             const drawnAngle = Math.atan2(A, -B); 
             let angleDiff = Math.abs(drawnAngle - currentPhase.correctAngle);
             
-            // Normalize to 0..PI
+            // Normalize
             angleDiff = angleDiff % Math.PI;
             if (angleDiff > Math.PI / 2) angleDiff = Math.PI - angleDiff;
             
             const diffDeg = angleDiff * 180 / Math.PI;
             
-            // Stricter Scoring Math: 
-            // 0-2 degrees off = 100%. Drops by ~5% for every degree after that. 22 degrees off = 0%.
             if (diffDeg <= 2) {
                 accuracy = 100;
             } else {
@@ -830,9 +922,9 @@
             if (accuracy >= 85) {
                 feedbackEl.style.color = "#10b981";
                 if (currentPhase.ray) {
-                    feedbackEl.innerText = `Awesome! ${accuracy}% accurate. Notice how the light bends TOWARDS the normal inside, and AWAY as it exits!`;
+                    feedbackEl.innerText = `Awesome! ${accuracy}% accurate. Notice the 90° box and how the light bends TOWARDS the normal inside!`;
                 } else {
-                    feedbackEl.innerText = `Awesome! ${accuracy}% accurate. You've drawn a perfect perpendicular right angle!`;
+                    feedbackEl.innerText = `Awesome! ${accuracy}% accurate. You've drawn a perfect perpendicular (90°) right angle!`;
                 }
                 showTrueNormal = true;
                 nextBtn.disabled = false;
@@ -840,7 +932,7 @@
             } else {
                 feedbackEl.style.color = "#ef4444";
                 feedbackEl.innerText = `Not quite right (${accuracy}%). You were off by ${Math.round(diffDeg)}°. Try again! (Needs 85%+)`;
-                userDrawnLine = null; // Erase line to force retry
+                userDrawnLine = null; 
             }
         }
 
@@ -869,7 +961,6 @@
     // Navigation and Submission Logic
     nextBtn.addEventListener('click', () => {
         if (currentPhase.mode === 'complete') {
-            // Show custom modal if clicking submit
             document.getElementById('modalScoreDisplay').innerText = currentScore;
             document.getElementById('modalOverlay').style.display = 'flex';
         } else {
@@ -903,7 +994,7 @@
         document.getElementById('modalOverlay').style.display = 'none';
         isSubmitted = true;
         reportComplete({ phase: 'complete', score: currentScore });
-        initPhase(); // Refresh UI to show success state
+        initPhase(); 
     });
 
     // Start Simulation
