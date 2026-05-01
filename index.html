@@ -219,66 +219,21 @@
 </div>
 
 <script>
-    // --- 1. PLATFORM INTEGRATION (postMessage Protocol) ---
-    let handshakeToken = null;
-    let assignmentId = null;
+    // --- 1. PLATFORM INTEGRATION (IterātED Simulation Bridge) ---
+    function submitSimulation(simData = null) {
+        const message = {
+            action: "SIM_COMPLETE"
+        };
 
-    // Ping parent to announce iframe is ready for the handshake
-    window.parent.postMessage({ type: 'sim-loaded' }, '*');
-
-    window.addEventListener('message', (ev) => {
-        try {
-            const msg = ev.data;
-            if (msg && msg.type === 'handshake' && msg.assignmentId && msg.token) {
-                assignmentId = msg.assignmentId;
-                handshakeToken = msg.token;
-                
-                // Fire sim-ready using '*' to bypass sandboxed iframe restrictions
-                window.parent.postMessage({
-                    type: 'sim-ready',
-                    assignmentId,
-                    token: handshakeToken,
-                    payload: { version: '5.0', simId: 'lens-normal-sim' }
-                }, '*');
-            }
-        } catch (err) {
-            console.error("Error processing handshake:", err);
+        if (simData !== null && simData !== undefined) {
+            message.simData = simData;
         }
-    });
 
-    let progressTimeout;
-    function reportProgress(state) {
-        if (!handshakeToken || !assignmentId) return;
-        clearTimeout(progressTimeout);
-        progressTimeout = setTimeout(() => {
-            window.parent.postMessage({
-                type: 'sim-progress',
-                assignmentId,
-                token: handshakeToken,
-                payload: { 
-                    timestamp: Date.now(),
-                    progress: currentScore, // Ensure parent can find the exact value
-                    percent: currentScore,
-                    step: currentPhase ? currentPhase.mode + '-' + phaseIndex : 'unknown',
-                    state: state
-                }
-            }, '*'); // Changed to '*' to avoid origin null blocking
-        }, 300);
-    }
+        // Using '*' to ensure it connects correctly regardless of the iframe domain,
+        // as the IterātED wrapper manages the strict origin validation.
+        const parentOrigin = "*"; 
 
-    function reportComplete(finalState) {
-        if (!handshakeToken || !assignmentId) return;
-        window.parent.postMessage({
-            type: 'sim-complete',
-            assignmentId,
-            token: handshakeToken,
-            payload: { 
-                finalState, 
-                score: finalState.score,
-                progress: 100,
-                percent: 100
-            }
-        }, '*');
+        window.parent.postMessage(message, parentOrigin);
     }
 
 
@@ -516,8 +471,6 @@
 
             if (currentPhase.mode === 'notes') {
                 nextBtn.disabled = false;
-            } else {
-                reportProgress({ currentPhase: phaseIndex, status: 'started' });
             }
             draw();
         }
@@ -890,7 +843,7 @@
         
         const lineLen = Math.hypot(currentX - drawStartX, currentY - drawStartY);
         if (lineLen < 10) {
-            feedbackEl.innerText = "Please drag your mouse outward to draw a line segment.";
+            feedbackEl.innerText = "Please drag your mouse to draw a line segment.";
             feedbackEl.style.color = "#ef4444";
             draw();
             return;
@@ -976,14 +929,6 @@
         totalAccuracy += accuracy;
         currentScore = Math.round(totalAccuracy / totalAttempts);
         scoreDisplay.innerText = `Practice Score: ${currentScore}%`;
-
-        reportProgress({ 
-            currentPhase: phaseIndex, 
-            accuracyThisAttempt: accuracy,
-            averageScore: currentScore,
-            status: isSuccess ? 'success' : 'retry'
-        });
-
         draw();
     }
 
@@ -1029,7 +974,15 @@
     document.getElementById('modalSubmitBtn').addEventListener('click', () => {
         document.getElementById('modalOverlay').style.display = 'none';
         isSubmitted = true;
-        reportComplete({ phase: 'complete', score: currentScore });
+        
+        // Trigger the new IterātED API template
+        submitSimulation({
+            finalScore: currentScore,
+            totalAttempts: totalAttempts,
+            thresholdPassed: currentScore >= 80,
+            summary: `Student successfully passed the practice threshold with a final average accuracy of ${currentScore}% across ${totalAttempts} practice attempts.`
+        });
+        
         initPhase(); 
     });
 
